@@ -43,6 +43,19 @@
             }
         }
 
+        public TypeDefinition GetClass()
+        {
+            switch (this.TypeCode)
+            {
+                case TypeCode.CLASS:
+                case TypeCode.VALUETYPE:
+                    var typeDefinition = new TypeDefinition(this.Image, this.Data);
+                    return typeDefinition;
+                default:
+                    return null;
+            }
+        }
+
         public object GetValue(uint address) => this.Process.ReadManaged(this, address);
     }
 }

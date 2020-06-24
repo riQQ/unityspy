@@ -18,7 +18,7 @@
 
         public virtual ProcessFacade Process => this.Image.Process;
 
-        protected uint Address { get; }
+        internal uint Address { get; }
 
         protected int ReadInt32(uint offset) => this.Process.ReadInt32(this.Address + offset);
 
@@ -27,5 +27,9 @@
         protected string ReadString(uint offset) => this.Process.ReadAsciiStringPtr(this.Address + offset);
 
         protected uint ReadUInt32(uint offset) => this.Process.ReadUInt32(this.Address + offset);
+
+        protected byte ReadByte(uint offset) => this.Process.ReadByte(this.Address + offset);
+
+        protected byte[] ReadByteArray(uint offset, int size) => this.Process.ReadByteArray(this.Address + offset, size);
     }
 }

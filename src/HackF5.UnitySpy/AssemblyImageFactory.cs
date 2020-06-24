@@ -6,6 +6,7 @@
     using System.Linq;
     using System.Runtime.InteropServices;
     using System.Text;
+    using System.Text.RegularExpressions;
     using HackF5.UnitySpy.Detail;
     using HackF5.UnitySpy.Util;
     using JetBrains.Annotations;
@@ -41,6 +42,10 @@
 
             var process = new ProcessFacade(processId);
             var monoModule = AssemblyImageFactory.GetMonoModule(process);
+            if (monoModule == null)
+            {
+                throw new Exception("Couldn't find mono module");
+            }
             var moduleDump = process.ReadModule(monoModule);
             var rootDomainFunctionAddress = AssemblyImageFactory.GetRootDomainFunctionAddress(moduleDump, monoModule);
 
@@ -50,11 +55,20 @@
         private static AssemblyImage GetAssemblyImage(ProcessFacade process, string name, int rootDomainFunctionAddress)
         {
             var domainAddress = process.ReadPtr((uint)rootDomainFunctionAddress + 1);
-            //// pointer to struct of type _MonoDomain
+            // pointer to struct of type _MonoDomain
             var domain = process.ReadPtr(domainAddress);
 
-            //// pointer to array of structs of type _MonoAssembly
-            var assemblyArrayAddress = process.ReadPtr(domain + MonoLibraryOffsets.ReferencedAssemblies);
+            uint assemblyArrayPointer = GetAssemblyListAddress(process, domain);
+            var bla = domain + 108;
+            byte[] bytes = process.ReadByteArray(domain, (int)MonoLibraryOffsets.ReferencedAssemblies + 30);
+            // pointer to array of structs of type _MonoAssembly
+            var assemblyArrayAddress = process.ReadPtr(assemblyArrayPointer);
+
+            if (assemblyArrayAddress == 0)
+            {
+                throw new Exception("Wrong starting point for referenced assemblies search");
+            }
+
             for (var assemblyAddress = assemblyArrayAddress;
                 assemblyAddress != Constants.NullPtr;
                 assemblyAddress = process.ReadPtr(assemblyAddress + 0x4))
@@ -64,11 +78,37 @@
                 var assemblyName = process.ReadAsciiString(assemblyNameAddress);
                 if (assemblyName == name)
                 {
-                    return new AssemblyImage(process, process.ReadPtr(assembly + MonoLibraryOffsets.AssemblyImage));
+                    return new AssemblyImage(process, process.ReadPtr(assembly + MonoLibraryOffsets.AssemblyImage + 4), assembly);
                 }
             }
 
             throw new InvalidOperationException($"Unable to find assembly '{name}'");
+        }
+
+        private static uint GetAssemblyListAddress(ProcessFacade process, uint domain)
+        {
+            const string unityRootDomain = "Unity Root Domain";
+            int unityRootDomainStringLength = unityRootDomain.Length + 1;
+            // 18 pointers + 3 * 32 bit integer + 8 offset von address list zu friendly_name
+            var domainNameStartAddress = domain + 92;
+
+            for (var domainNameAddress = domainNameStartAddress; domainNameAddress < domainNameStartAddress + 200; domainNameAddress += 0x4)
+            {
+                var assembly = process.ReadPtr(domainNameAddress);
+                if (assembly == 0)
+                {
+                    continue;
+                }
+
+                var assemblyName = process.ReadAsciiString(assembly, unityRootDomainStringLength);
+                if (assemblyName == "Unity Root Domain")
+                {
+                    // the assembly list pointer is 8 byte before the domain name pointer
+                    return domainNameAddress - 8;
+                }
+            }
+
+            throw new Exception("Couldn't determine assembly list");
         }
 
         // https://stackoverflow.com/questions/36431220/getting-a-list-of-dlls-currently-loaded-in-a-process-c-sharp
@@ -104,7 +144,7 @@
                 modules.Add(module);
             }
 
-            return modules.FirstOrDefault(module => module.ModuleName == "mono.dll");
+            return modules.FirstOrDefault(module => Regex.IsMatch(module.ModuleName, @"mono.*\.dll"));
         }
 
         private static int GetRootDomainFunctionAddress(byte[] moduleDump, ModuleInfo monoModuleInfo)

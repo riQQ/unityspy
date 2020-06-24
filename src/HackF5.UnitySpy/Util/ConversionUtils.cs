@@ -18,6 +18,8 @@
 
         public static char ToChar(this byte[] buffer) => BitConverter.ToChar(buffer, 0);
 
+        public static byte ToByte(this byte[] buffer) => buffer?[0] ?? throw new ArgumentNullException(nameof(buffer));
+
         public static ushort ToUInt16(this byte[] buffer) => BitConverter.ToUInt16(buffer, 0);
 
         public static short ToInt16(this byte[] buffer) => BitConverter.ToInt16(buffer, 0);
