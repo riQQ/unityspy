@@ -49,16 +49,21 @@
             var moduleDump = process.ReadModule(monoModule);
             var rootDomainFunctionAddress = AssemblyImageFactory.GetRootDomainFunctionAddress(moduleDump, monoModule);
 
-            return AssemblyImageFactory.GetAssemblyImage(process, assemblyName, rootDomainFunctionAddress);
-        }
-
-        private static AssemblyImage GetAssemblyImage(ProcessFacade process, string name, int rootDomainFunctionAddress)
-        {
-            var domainAddress = process.ReadPtr((uint)rootDomainFunctionAddress + 1);
+            // get_root_domain_address function has one assembly instruction:
+            // mov rax,[rel $0046AD40] (can be found via snowman f.e.)
+            // the relative offset $0046AD40 is located at rootDomainFunctionAddress + 3
+            // the instruction with operand is 7 byte in total
+            var domainAddressOffset = process.ReadInt32(rootDomainFunctionAddress + 3);
+            var domainAddress = rootDomainFunctionAddress + 7 + domainAddressOffset;
             // pointer to struct of type _MonoDomain
             var domain = process.ReadPtr(domainAddress);
 
-            uint assemblyArrayPointer = GetAssemblyListAddress(process, domain);
+            return AssemblyImageFactory.GetAssemblyImage(process, assemblyName, domain);
+        }
+
+        private static AssemblyImage GetAssemblyImage(ProcessFacade process, string name, long domain)
+        {
+            long assemblyArrayPointer = GetAssemblyListAddress(process, domain);
             var bla = domain + 108;
             byte[] bytes = process.ReadByteArray(domain, (int)MonoLibraryOffsets.ReferencedAssemblies + 30);
             // pointer to array of structs of type _MonoAssembly
@@ -71,28 +76,35 @@
 
             for (var assemblyAddress = assemblyArrayAddress;
                 assemblyAddress != Constants.NullPtr;
-                assemblyAddress = process.ReadPtr(assemblyAddress + 0x4))
+                assemblyAddress = process.ReadPtr(assemblyAddress + Constants.SizeOfPtr))
             {
+                // _MonoAssembly
                 var assembly = process.ReadPtr(assemblyAddress);
-                var assemblyNameAddress = process.ReadPtr(assembly + 0x8);
+                // members
+                // int ref_count (4 byte + padding)
+                // char *basedir (8 byte)
+                // MonoAssemblyName aname
+                var assemblyNameAddress = process.ReadPtr(assembly + 2 * Constants.SizeOfPtr);
                 var assemblyName = process.ReadAsciiString(assemblyNameAddress);
                 if (assemblyName == name)
                 {
-                    return new AssemblyImage(process, process.ReadPtr(assembly + MonoLibraryOffsets.AssemblyImage + 4), assembly);
+                    return new AssemblyImage(process, process.ReadPtr(assembly + MonoLibraryOffsets.AssemblyImage), assembly);
                 }
             }
 
             throw new InvalidOperationException($"Unable to find assembly '{name}'");
         }
 
-        private static uint GetAssemblyListAddress(ProcessFacade process, uint domain)
+        private static long GetAssemblyListAddress(ProcessFacade process, long domain)
         {
             const string unityRootDomain = "Unity Root Domain";
             int unityRootDomainStringLength = unityRootDomain.Length + 1;
-            // 18 pointers + 3 * 32 bit integer + 8 offset von address list zu friendly_name
-            var domainNameStartAddress = domain + 92;
+            // 18 pointers + 3 * 32 bit integer incl. padding (0 byte padding when x86, 4 byte padding when x64) + 16 offset
+            // from address list (domain_assemblies) to friendly_name
+            int offset = 18 * Constants.SizeOfPtr + (3 * 4 + 4) + 2*8;
+            var domainNameStartAddress = domain + offset;
 
-            for (var domainNameAddress = domainNameStartAddress; domainNameAddress < domainNameStartAddress + 200; domainNameAddress += 0x4)
+            for (var domainNameAddress = domainNameStartAddress; domainNameAddress < domainNameStartAddress + 200; domainNameAddress += Constants.SizeOfPtr)
             {
                 var assembly = process.ReadPtr(domainNameAddress);
                 if (assembly == 0)
@@ -104,7 +116,7 @@
                 if (assemblyName == "Unity Root Domain")
                 {
                     // the assembly list pointer is 8 byte before the domain name pointer
-                    return domainNameAddress - 8;
+                    return domainNameAddress - 2 * Constants.SizeOfPtr;
                 }
             }
 
@@ -133,7 +145,7 @@
                 }
 
                 var moduleName = Path.GetFileName(moduleFilePath.ToString());
-                Native.GetModuleInformation(
+                bool success = Native.GetModuleInformation(
                     process.Process.Handle,
                     modulePointer,
                     out var moduleInformation,
@@ -147,41 +159,51 @@
             return modules.FirstOrDefault(module => Regex.IsMatch(module.ModuleName, @"mono.*\.dll"));
         }
 
-        private static int GetRootDomainFunctionAddress(byte[] moduleDump, ModuleInfo monoModuleInfo)
+        private static long GetRootDomainFunctionAddress(byte[] moduleDump, ModuleInfo monoModuleInfo)
         {
             // offsets taken from https://docs.microsoft.com/en-us/windows/desktop/Debug/pe-format
-            // ReSharper disable once CommentTypo
-            var startIndex = moduleDump.ToInt32(0x3c); // lfanew
 
-            var exportDirectoryIndex = startIndex + 0x78;
+            // Offset to PE / lfanew (long file address for the New Executable header)
+            var peStartIndex = moduleDump.ToInt32(0x3c);
+            var bytes = Encoding.ASCII.GetBytes("PE");
+            var peHeader = moduleDump.ToInt32(peStartIndex);
+            int coffStart = peStartIndex + 4;
+            ushort machineType = moduleDump.ToUInt16(coffStart);
+            bool isX64 = machineType == 0x8664;
+
+            ushort coffSizeOfOptionalHeader = moduleDump.ToUInt16(coffStart + 16);
+
+            ushort coffFieldMagic = moduleDump.ToUInt16(coffStart + 20);
+            bool pe32Plus = coffFieldMagic == 0x020b;
+            // Export Table (RVA)
+            var exportDirectoryIndex = pe32Plus ? peStartIndex + 0x78 + 16 : peStartIndex + 0x78;
             var exportDirectory = moduleDump.ToInt32(exportDirectoryIndex);
 
             var numberOfFunctions = moduleDump.ToInt32(exportDirectory + 0x14);
             var functionAddressArrayIndex = moduleDump.ToInt32(exportDirectory + 0x1c);
             var functionNameArrayIndex = moduleDump.ToInt32(exportDirectory + 0x20);
 
-            var rootDomainFunctionAddress = Constants.NullPtr;
-            for (var functionIndex = Constants.NullPtr;
-                functionIndex < (numberOfFunctions * Constants.SizeOfPtr);
-                functionIndex += (int)Constants.SizeOfPtr)
+            IntPtr rootDomainFunctionAddress = IntPtr.Zero;
+            for (int functionIndex = (int)Constants.NullPtr;
+                functionIndex < (numberOfFunctions * IntPtr.Size);
+                functionIndex += IntPtr.Size)
             {
                 var functionNameIndex = moduleDump.ToInt32(functionNameArrayIndex + functionIndex);
                 var functionName = moduleDump.ToAsciiString(functionNameIndex);
                 if (functionName == "mono_get_root_domain")
                 {
-                    rootDomainFunctionAddress = monoModuleInfo.BaseAddress.ToInt32()
-                        + moduleDump.ToInt32(functionAddressArrayIndex + functionIndex);
+                    rootDomainFunctionAddress = IntPtr.Add(monoModuleInfo.BaseAddress, moduleDump.ToInt32(functionAddressArrayIndex + functionIndex));
 
                     break;
                 }
             }
 
-            if (rootDomainFunctionAddress == Constants.NullPtr)
+            if (rootDomainFunctionAddress == IntPtr.Zero)
             {
                 throw new InvalidOperationException("Failed to find mono_get_root_domain function.");
             }
 
-            return rootDomainFunctionAddress;
+            return rootDomainFunctionAddress.ToInt64();
         }
     }
 }

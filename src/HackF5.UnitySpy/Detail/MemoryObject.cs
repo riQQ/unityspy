@@ -6,7 +6,7 @@
     /// </summary>
     public abstract class MemoryObject : IMemoryObject
     {
-        protected MemoryObject(AssemblyImage image, uint address)
+        protected MemoryObject(AssemblyImage image, long address)
         {
             this.Image = image;
             this.Address = address;
@@ -18,18 +18,18 @@
 
         public virtual ProcessFacade Process => this.Image.Process;
 
-        internal uint Address { get; }
+        internal long Address { get; }
 
-        protected int ReadInt32(uint offset) => this.Process.ReadInt32(this.Address + offset);
+        protected int ReadInt32(long offset) => this.Process.ReadInt32(this.Address + offset);
 
-        protected uint ReadPtr(uint offset) => this.Process.ReadPtr(this.Address + offset);
+        protected long ReadPtr(long offset) => this.Process.ReadPtr(this.Address + offset);
 
-        protected string ReadString(uint offset) => this.Process.ReadAsciiStringPtr(this.Address + offset);
+        protected string ReadString(long offset) => this.Process.ReadAsciiStringPtr(this.Address + offset);
 
-        protected uint ReadUInt32(uint offset) => this.Process.ReadUInt32(this.Address + offset);
+        protected uint ReadUInt32(long offset) => this.Process.ReadUInt32(this.Address + offset);
 
-        protected byte ReadByte(uint offset) => this.Process.ReadByte(this.Address + offset);
+        protected byte ReadByte(long offset) => this.Process.ReadByte(this.Address + offset);
 
-        protected byte[] ReadByteArray(uint offset, int size) => this.Process.ReadByteArray(this.Address + offset, size);
+        protected byte[] ReadByteArray(long offset, int size) => this.Process.ReadByteArray(this.Address + offset, size);
     }
 }

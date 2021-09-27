@@ -2,8 +2,8 @@
 {
     public static class Constants
     {
-        public const int NullPtr = 0;
+        public const long NullPtr = 0;
 
-        public const uint SizeOfPtr = sizeof(uint);
+        public const int SizeOfPtr = 8;
     }
 }

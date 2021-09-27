@@ -21,20 +21,20 @@
 
         public Process Process { get; }
 
-        public string ReadAsciiString(uint address, int maxSize = 1024)
+        public string ReadAsciiString(long address, int maxSize = 1024)
         {
             return this.ReadBufferValue(address, maxSize, b => b.ToAsciiString());
         }
 
-        public string ReadAsciiStringPtr(uint address, int maxSize = 1024) =>
+        public string ReadAsciiStringPtr(long address, int maxSize = 1024) =>
             this.ReadAsciiString(this.ReadPtr(address), maxSize);
 
-        public int ReadInt32(uint address)
+        public int ReadInt32(long address)
         {
             return this.ReadBufferValue(address, sizeof(int), b => b.ToInt32());
         }
 
-        public object ReadManaged([NotNull] TypeInfo type, uint address)
+        public object ReadManaged([NotNull] TypeInfo type, long address)
         {
             if (type == null)
             {
@@ -56,7 +56,7 @@
                     return this.ReadBufferValue(address, sizeof(sbyte), b => unchecked((sbyte)b[0]));
 
                 case TypeCode.I2:
-                    return this.ReadBufferValue(address, sizeof(short), ConversionUtils.ToInt16);
+                    return this.ReadBufferValue<short>(address, sizeof(short), ConversionUtils.ToInt16);
 
                 case TypeCode.U2:
                     return this.ReadBufferValue(address, sizeof(ushort), ConversionUtils.ToUInt16);
@@ -148,17 +148,29 @@
 
         public uint ReadPtr(uint address) => this.ReadUInt32(address);
 
-        public uint ReadUInt32(uint address)
+        public uint ReadUInt32(long address)
         {
             return this.ReadBufferValue(address, sizeof(uint), b => b.ToUInt32());
         }
 
-        public byte ReadByte(uint address)
+        public long ReadPtr(long address) => (long)this.ReadInt64(address);
+
+        public long ReadInt64(long address)
+        {
+            return this.ReadBufferValue(address, sizeof(long), b => b.ToInt64());
+        }
+
+        public ulong ReadUInt64(long address)
+        {
+            return this.ReadBufferValue(address, sizeof(long), b => b.ToUInt64());
+        }
+
+        public byte ReadByte(long address)
         {
             return this.ReadBufferValue(address, sizeof(byte), b => b.ToByte());
         }
 
-        public byte[] ReadByteArray(uint address, int size)
+        public byte[] ReadByteArray(long address, int size)
         {
             return this.ReadBufferValue(address, size, b =>
             {
@@ -176,7 +188,7 @@
             int nSize,
             out IntPtr lpNumberOfBytesRead);
 
-        private TValue ReadBufferValue<TValue>(uint address, int size, Func<byte[], TValue> read)
+        private TValue ReadBufferValue<TValue>(long address, int size, Func<byte[], TValue> read)
         {
             var buffer = ByteArrayPool.Instance.Rent(size);
 
@@ -191,7 +203,7 @@
             }
         }
 
-        private object[] ReadManagedArray(TypeInfo type, uint address)
+        private object[] ReadManagedArray(TypeInfo type, long address)
         {
             var ptr = this.ReadPtr(address);
             if (ptr == Constants.NullPtr)
@@ -209,13 +221,13 @@
             var result = new object[count];
             for (var i = 0; i < count; i++)
             {
-                result[i] = elementDefinition.TypeInfo.GetValue(start + (uint)(i * arrayDefinition.Size));
+                result[i] = elementDefinition.TypeInfo.GetValue(start + (long)(i * arrayDefinition.Size));
             }
 
             return result;
         }
 
-        private ManagedClassInstance ReadManagedClassInstance(TypeInfo type, uint address)
+        private ManagedClassInstance ReadManagedClassInstance(TypeInfo type, long address)
         {
             var ptr = this.ReadPtr(address);
             return ptr == Constants.NullPtr
@@ -223,7 +235,7 @@
                 : new ManagedClassInstance(type.Image, ptr);
         }
 
-        private object ReadManagedGenericObject(TypeInfo type, uint address)
+        private object ReadManagedGenericObject(TypeInfo type, long address)
         {
             var genericDefinition = type.Image.GetTypeDefinition(this.ReadPtr(type.Data));
             if (genericDefinition.IsValueType)
@@ -234,7 +246,7 @@
             return this.ReadManagedClassInstance(type, address);
         }
 
-        private string ReadManagedString(uint address)
+        private string ReadManagedString(long address)
         {
             var ptr = this.ReadPtr(address);
             if (ptr == Constants.NullPtr)
@@ -250,7 +262,7 @@
                 b => Encoding.Unicode.GetString(b, 0, 2 * length));
         }
 
-        private object ReadManagedStructInstance(TypeInfo type, uint address)
+        private object ReadManagedStructInstance(TypeInfo type, long address)
         {
             var definition = type.Image.GetTypeDefinition(type.Data);
             var obj = new ManagedStructInstance(definition, address);
@@ -259,7 +271,7 @@
 
         private void ReadProcessMemory(
             byte[] buffer,
-            uint processAddress,
+            long processAddress,
             bool allowPartialRead = false,
             int? size = default)
             => this.ReadProcessMemory(buffer, new IntPtr(processAddress), allowPartialRead, size);
@@ -274,7 +286,7 @@
 
             try
             {
-                var bufferPointer = Marshal.UnsafeAddrOfPinnedArrayElement(buffer, Constants.NullPtr);
+                var bufferPointer = Marshal.UnsafeAddrOfPinnedArrayElement(buffer, 0);
                 if (!ProcessFacade.ReadProcessMemory(
                     this.Process.Handle,
                     processAddress,

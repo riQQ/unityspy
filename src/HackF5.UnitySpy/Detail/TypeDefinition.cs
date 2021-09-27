@@ -24,7 +24,7 @@
         private readonly ConcurrentDictionary<(string @class, string name), FieldDefinition> fieldCache =
             new ConcurrentDictionary<(string @class, string name), FieldDefinition>();
 
-        private readonly int fieldSize;
+        private readonly int fieldCount;
 
         private readonly Lazy<IReadOnlyList<FieldDefinition>> lazyFields;
 
@@ -34,7 +34,7 @@
 
         private readonly Lazy<TypeDefinition> lazyParent;
 
-        public TypeDefinition([NotNull] AssemblyImage image, uint address)
+        public TypeDefinition([NotNull] AssemblyImage image, long address)
             : base(image, address)
         {
             if (image == null)
@@ -48,7 +48,7 @@
             //byte[] bytes = this.ReadByteArray(0, 200);
 
             int imageOffset = 0;
-            //for (int i = 0; i < bytes.Length - 4; i++)
+            //for (int i = 0; i < bytes.Length - Constants.SizeOfPtr; i += Constants.SizeOfPtr)
             //{
             //    uint pointer = BitConverter.ToUInt32(bytes, i);
             //    if (pointer == image.Address)
@@ -57,43 +57,48 @@
             //        break;
             //    }
             //}
-            imageOffset = 40;
+            imageOffset = 0x40;
             uint thisArgOffset = 0;
-            //for (int i = imageOffset; i < bytes.Length - 4; i++)
+            //for (int i = imageOffset; i < bytes.Length - Constants.SizeOfPtr; i += Constants.SizeOfPtr)
             //{
-            //    uint pointer = BitConverter.ToUInt32(bytes, i);
+            //    var pointer = BitConverter.ToInt64(bytes, i);
             //    if (pointer == this.Address)
             //    {
             //        thisArgOffset = (uint)i;
             //        break;
             //    }
             //}
-            thisArgOffset = 104;
-            this.TypeInfo = new TypeInfo(image, this.Address + thisArgOffset + 12);
-            var castClass = this.ReadUInt32(4);
-            var superTypes = this.ReadUInt32(8);
-            var idepth = this.ReadUInt32(12);
-            this.InstanceSize = this.ReadUInt32(16);
-
-            var flageBytes29 = this.ReadByte(29);
-            var isDelegate = flageBytes29 & 0b00000001;
+            thisArgOffset = 168;
+            // thisArgOffset + sizeof(_MonoType)
+            this.TypeInfo = new TypeInfo(image, this.Address + thisArgOffset + 3 * Constants.SizeOfPtr);
+            var castClass = this.ReadPtr(Constants.SizeOfPtr);
+            var superTypes = this.ReadPtr(2 * Constants.SizeOfPtr);
+            var idepth = this.ReadInt32(3 * Constants.SizeOfPtr);
+            var rank = this.ReadByte(3 * Constants.SizeOfPtr + 2);
+            this.InstanceSize = this.ReadUInt32(3 * Constants.SizeOfPtr + 4);
+            var flagsInited = this.ReadUInt32(3 * Constants.SizeOfPtr + 2 * 4);
+            bool isSizeInited = Convert.ToBoolean(flagsInited & 0b00000001);
+            bool isValueType = Convert.ToBoolean(flagsInited & 0b00000010);
+            var minAlign = this.ReadUInt32(3 * Constants.SizeOfPtr + 3 * 4);
+            var flagsPackingsize = this.ReadUInt32(3 * Constants.SizeOfPtr + 4 * 4);
+            var isDelegate = flagsPackingsize & 0b00000001;
             var flageBytes = this.ReadUInt32(29);
             // var classKind = (MonoTypeKind)((flageBytes & 0b00000000_00000000_00000001_11000000) >> 6);
-            this.ClassKind = (MonoTypeKind)((flageBytes & 0b00000000_00000000_00000111_00000000) >> 8);
-            var imageAddress = this.ReadUInt32(40);
+            this.ClassKind = (MonoTypeKind)((flagsPackingsize & 0b00000000_00000111_00000000_00000000) >> 16);
+            var imageAddress = this.ReadUInt32(imageOffset);
             bool isClass = imageAddress == image.Address;
 
-            this.bitFields = this.ReadUInt32(MonoLibraryOffsets.TypeDefinitionBitFields);
-            this.fieldSize = this.ReadInt32(MonoLibraryOffsets.TypeDefinitionFieldCount);
-            this.lazyParent = new Lazy<TypeDefinition>(() => this.GetClassDefinition(MonoLibraryOffsets.TypeDefinitionParent));
-            this.lazyNestedIn = new Lazy<TypeDefinition>(() => this.GetClassDefinition(MonoLibraryOffsets.TypeDefinitionNestedIn));
+            this.bitFields = this.ReadUInt32(3 * Constants.SizeOfPtr + 2 * 4);
+            this.fieldCount = this.ReadInt32(MonoLibraryOffsets.TypeDefinitionFieldCount);
+            this.lazyParent = new Lazy<TypeDefinition>(() => this.GetClassDefinition(3 * Constants.SizeOfPtr + 4 * 4 + (4 + 4 /*Padding*/)));
+            this.lazyNestedIn = new Lazy<TypeDefinition>(() => this.GetClassDefinition(4 * Constants.SizeOfPtr + 4 * 4 + (4 + 4 /*Padding*/)));
 
             byte flags2 = this.ReadByte((uint)imageOffset - 10);
             byte flags = this.ReadByte((uint)imageOffset - 9);
             // 44
             try
             {
-                this.Name = this.ReadString((uint)imageOffset + 4);
+                this.Name = this.ReadString((uint)imageOffset + Constants.SizeOfPtr);
             }
             catch (Exception ex)
             {
@@ -105,13 +110,14 @@
                 throw new Exception("Empty type name");
             }
 
-            this.NamespaceName = this.ReadString((uint)imageOffset + 8);
+            this.NamespaceName = this.ReadString((uint)imageOffset + 2 * Constants.SizeOfPtr);
             // typedef token
-            uint typeToken = this.ReadUInt32((uint)imageOffset + 12);
-            uint vtableSize = this.ReadUInt32((uint)imageOffset + 16);
+            uint typeToken = this.ReadUInt32((uint)imageOffset + 3 * Constants.SizeOfPtr);
+            uint vtableSize = this.ReadUInt32((uint)imageOffset + 3 * Constants.SizeOfPtr + 4);
 
-            this.Size = this.ReadInt32(MonoLibraryOffsets.TypeDefinitionSize);
-            uint runtimeInfo = thisArgOffset + 12 + 12 + 4;
+            //this.Size = this.ReadInt32(MonoLibraryOffsets.TypeDefinitionSize);
+            this.Size = this.ReadInt32(imageOffset + 3 * Constants.SizeOfPtr + 6 * 4 + 4 * Constants.SizeOfPtr);
+            uint runtimeInfo = thisArgOffset + 2 * (3 * Constants.SizeOfPtr) + Constants.SizeOfPtr;
             var vtablePtr = this.ReadPtr(runtimeInfo);
             this.VTable = vtablePtr == Constants.NullPtr ? Constants.NullPtr : image.Process.ReadPtr(vtablePtr + MonoLibraryOffsets.TypeDefinitionRuntimeInfoDomainVtables);
 
@@ -120,6 +126,10 @@
         IReadOnlyList<IFieldDefinition> ITypeDefinition.Fields => this.Fields;
 
         public string FullName => this.lazyFullName.Value;
+
+        public bool IsInited => (this.bitFields & 0x1) == 0x1;
+
+        public bool IsSizeInited => (this.bitFields & 0x2) == 0x2;
 
         public bool IsEnum => (this.bitFields & 0x8) == 0x8;
 
@@ -141,7 +151,7 @@
 
         public TypeInfo TypeInfo { get; }
 
-        public uint VTable { get; }
+        public long VTable { get; }
 
         public MonoTypeKind ClassKind { get; set; }
 
@@ -198,9 +208,9 @@
 
             var fields = new List<FieldDefinition>();
             FieldDefinition fieldDefinition = null;
-            for (var fieldIndex = 0u; (fieldDefinition?.Offset ?? 0) < this.fieldSize; fieldIndex++)
+            for (var fieldIndex = 0u; fieldIndex < this.fieldCount; fieldIndex++)
             {
-                var field = firstField + (fieldIndex * 0x10);
+                var field = firstField + (fieldIndex * (Constants.SizeOfPtr * 4));
                 if (this.Process.ReadPtr(field) == Constants.NullPtr)
                 {
                     break;
@@ -221,13 +231,6 @@
                 // var isValueType = fieldDefinition.TypeInfo.TypeCode == TypeCode.VALUETYPE;
                 // var instSize = fieldClass.InstanceSize;
 
-                // TODO Hack, correct way is to determine field size
-                // for size see mono function "mono_type_size"
-                // value type size = instanceSize - 8 ( sizeof(MonoObject) = 2 * PointerSize)
-                if (oldOffset >= fieldDefinition.Offset)
-                {
-                    break;
-                }
                 fields.Add(fieldDefinition);
             }
 
@@ -241,9 +244,10 @@
             var builder = new StringBuilder();
 
             var hierarchy = this.NestedHierarchy().Reverse().ToArray();
-            if (!string.IsNullOrWhiteSpace(this.NamespaceName))
+            string topLevelNamespace = hierarchy[0].NamespaceName;
+            if (!string.IsNullOrWhiteSpace(topLevelNamespace))
             {
-                builder.Append($"{hierarchy[0].NamespaceName}.");
+                builder.Append($"{topLevelNamespace}.");
             }
 
             foreach (var definition in hierarchy)

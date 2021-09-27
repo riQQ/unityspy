@@ -2,7 +2,8 @@
 {
     using System;
     using System.Diagnostics;
-    using JetBrains.Annotations;
+	using HackF5.UnitySpy.Util;
+	using JetBrains.Annotations;
 
     /// <summary>
     /// Represents an unmanaged _MonoClassField instance in a Mono process. This object describes a field in a
@@ -14,13 +15,13 @@
         "Field: {" + nameof(FieldDefinition.Offset) + "} - {" + nameof(FieldDefinition.Name) + "}")]
     public class FieldDefinition : MemoryObject, IFieldDefinition
     {
-        public FieldDefinition([NotNull] TypeDefinition declaringType, uint address)
+        public FieldDefinition([NotNull] TypeDefinition declaringType, long address)
             : base((declaringType ?? throw new ArgumentNullException(nameof(declaringType))).Image, address)
         {
             this.DeclaringType = declaringType;
             this.TypeInfo = new TypeInfo(declaringType.Image, this.ReadPtr(0x0));
-            this.Name = this.ReadString(0x4);
-            this.Offset = this.ReadInt32(0xc);
+            this.Name = this.ReadString(Constants.SizeOfPtr);
+            this.Offset = this.ReadInt32(3 * Constants.SizeOfPtr);
         }
 
         ITypeDefinition IFieldDefinition.DeclaringType => this.DeclaringType;
@@ -35,7 +36,7 @@
 
         public TypeInfo TypeInfo { get; }
 
-        public TValue GetValue<TValue>(uint address)
+        public TValue GetValue<TValue>(long address)
         {
             var offset = this.Offset - (this.DeclaringType.IsValueType ? 8 : 0);
             return (TValue)this.TypeInfo.GetValue((uint)(address + offset));

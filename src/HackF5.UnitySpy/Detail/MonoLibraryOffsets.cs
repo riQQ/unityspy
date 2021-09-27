@@ -3,7 +3,7 @@ namespace HackF5.UnitySpy.Detail
 {
     internal static class MonoLibraryOffsets
     {
-        public const uint AssemblyImage = 0x40;
+        public const uint AssemblyImage = 0x60;
 
         public const uint TypeDefinitionBitFields = 0x13;
 
@@ -17,15 +17,15 @@ namespace HackF5.UnitySpy.Detail
 
         public const uint TypeDefinitionNamespace = 0x38;
 
-        public const uint TypeDefinitionFieldCount = 0x5C;
-
-        public const uint TypeDefinitionFields = 0x60;
+        public const uint TypeDefinitionFields = 0x98;
 
         public const uint TypeDefinitionByValArg = 0x74;
 
+        // from MonoClassDef
+        public const uint TypeDefinitionFieldCount = 0x100;
 
-
-        public const uint TypeDefinitionNextClassCache = 0xac;
+        // from MonoClassDef
+        public const uint TypeDefinitionNextClassCache = 0x108;
 
         public const uint TypeDefinitionRuntimeInfo = 0xa8;
 

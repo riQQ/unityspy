@@ -4,7 +4,7 @@
 
     public abstract class ManagedObjectInstance : MemoryObject, IManagedObjectInstance
     {
-        protected ManagedObjectInstance(AssemblyImage image, uint address)
+        protected ManagedObjectInstance(AssemblyImage image, long address)
             : base(image, address)
         {
         }

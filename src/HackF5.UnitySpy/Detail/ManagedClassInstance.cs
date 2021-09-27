@@ -12,11 +12,11 @@
     [PublicAPI]
     public class ManagedClassInstance : ManagedObjectInstance
     {
-        private readonly uint definitionAddress;
+        private readonly long definitionAddress;
 
-        private readonly uint vtable;
+        private readonly long vtable;
 
-        public ManagedClassInstance([NotNull] AssemblyImage image, uint address)
+        public ManagedClassInstance([NotNull] AssemblyImage image, long address)
             : base(image, address)
         {
             if (image == null)

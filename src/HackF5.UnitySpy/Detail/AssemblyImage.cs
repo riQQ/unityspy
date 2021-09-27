@@ -18,18 +18,18 @@
         private readonly Dictionary<string, TypeDefinition> typeDefinitionsByFullName =
             new Dictionary<string, TypeDefinition>();
 
-        private readonly ConcurrentDictionary<uint, TypeDefinition> typeDefinitionsByAddress;
+        private readonly ConcurrentDictionary<long, TypeDefinition> typeDefinitionsByAddress;
 
-        public AssemblyImage(ProcessFacade process, uint address, uint assemblyAddress)
+        public AssemblyImage(ProcessFacade process, long address, long assemblyAddress)
             : base(null, address)
         {
             this.Process = process;
             byte[] bytes = process.ReadByteArray(address, 3000);
 
             int assemblyOffset = 0;
-            for (int i = 0; i < 3000 - 4; i++)
+            for (int i = 0; i < 3000 - 4; i += Constants.SizeOfPtr)
             {
-                uint pointerA = BitConverter.ToUInt32(bytes, i);
+                long pointerA = BitConverter.ToInt64(bytes, i);
                 if (pointerA == assemblyAddress)
                 {
                     assemblyOffset = i;
@@ -48,9 +48,16 @@
             int rawMetaData = 52;
             int headerStrings = 56; // 8 groß
 
-            uint addr = address + (uint)headerStrings;
-            uint pointer = BitConverter.ToUInt32(bytes, 52);
-            this.typeDefinitionsByAddress = this.CreateTypeDefinitions((uint)assemblyOffset + 8);
+            long addr = address + headerStrings;
+            long pointer = BitConverter.ToInt64(bytes, 52);
+
+            // Members
+            // ...
+            // MonoAssembly *assembly;
+            // GHashTable* method_cache;
+            // MonoInternalHashTable class_cache;
+            // ...
+            this.typeDefinitionsByAddress = this.CreateTypeDefinitions(assemblyOffset + 2 * Constants.SizeOfPtr);
 
             foreach (var definition in this.TypeDefinitions)
             {
@@ -89,7 +96,7 @@
         public TypeDefinition GetTypeDefinition(string fullTypeName) =>
             this.typeDefinitionsByFullName.TryGetValue(fullTypeName, out var d) ? d : default;
 
-        public TypeDefinition GetTypeDefinition(uint address)
+        public TypeDefinition GetTypeDefinition(long address)
         {
             if (address == Constants.NullPtr)
             {
@@ -101,14 +108,15 @@
                 key => new TypeDefinition(this, key));
         }
 
-        private ConcurrentDictionary<uint, TypeDefinition> CreateTypeDefinitions(uint classCacheOffset)
+        private ConcurrentDictionary<long, TypeDefinition> CreateTypeDefinitions(long classCacheOffset)
         {
-            var definitions = new ConcurrentDictionary<uint, TypeDefinition>();
+            var definitions = new ConcurrentDictionary<long, TypeDefinition>();
             const uint classCache = 0x2a0u;
             // struct _MonoInternalHashTable / mono\utils\mono-internal-hash.h
-            var classCacheSize = this.ReadUInt32(classCacheOffset + 0xc);
-            var entries = this.ReadUInt32(classCacheOffset + 0x10);
-            var classCacheTableArray = this.ReadPtr(classCacheOffset + 0x14);
+            var classCacheAddress = this.Address + classCacheOffset;
+            var classCacheSize = this.ReadInt32(classCacheOffset + 3 * Constants.SizeOfPtr);
+            var entries = this.ReadUInt32(classCacheOffset + 3 * Constants.SizeOfPtr + 4);
+            var classCacheTableArray = this.ReadPtr(classCacheOffset + 3 * Constants.SizeOfPtr + 2 * 4);
 
             for (var tableItem = 0u;
                 tableItem < (classCacheSize * Constants.SizeOfPtr);
@@ -117,7 +125,7 @@
                 TypeDefinition lastTypeDef = null;
                 for (var definition = this.Process.ReadPtr(classCacheTableArray + tableItem);
                     definition != Constants.NullPtr;
-                    definition = this.Process.ReadPtr(definition + MonoLibraryOffsets.TypeDefinitionNextClassCache + (lastTypeDef?.ClassKind == MonoTypeKind.MONO_CLASS_GTD ? 16u : 0u)))
+                    definition = this.Process.ReadPtr(definition + MonoLibraryOffsets.TypeDefinitionNextClassCache /*+ (lastTypeDef?.ClassKind == MonoTypeKind.MONO_CLASS_GTD ? 4 * Constants.SizeOfPtr : 0u)*/))
                 {
                     try
                     {

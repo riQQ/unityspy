@@ -22,6 +22,10 @@
 
         public static ushort ToUInt16(this byte[] buffer) => BitConverter.ToUInt16(buffer, 0);
 
+        public static ushort ToUInt16(this byte[] buffer, int start) => BitConverter.ToUInt16(buffer, start);
+
+        public static short ToInt16(this byte[] buffer, int start) => BitConverter.ToInt16(buffer, start);
+
         public static short ToInt16(this byte[] buffer) => BitConverter.ToInt16(buffer, 0);
 
         public static ulong ToUInt64(this byte[] buffer) => BitConverter.ToUInt64(buffer, 0);

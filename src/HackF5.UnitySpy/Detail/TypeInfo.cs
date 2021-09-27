@@ -1,6 +1,7 @@
 ﻿namespace HackF5.UnitySpy.Detail
 {
-    using JetBrains.Annotations;
+	using HackF5.UnitySpy.Util;
+	using JetBrains.Annotations;
 
     /// <summary>
     /// Represents an unmanaged _MonoType instance in a Mono process. This object describes type information.
@@ -10,16 +11,16 @@
     [PublicAPI]
     public class TypeInfo : MemoryObject, ITypeInfo
     {
-        public TypeInfo(AssemblyImage image, uint address)
+        public TypeInfo(AssemblyImage image, long address)
             : base(image, address)
         {
-            this.Data = this.ReadUInt32(0x0);
-            this.Attrs = this.ReadUInt32(0x4);
+            this.Data = this.ReadPtr(0x0);
+            this.Attrs = this.ReadUInt32(Constants.SizeOfPtr);
         }
 
         public uint Attrs { get; }
 
-        public uint Data { get; }
+        public long Data { get; }
 
         public bool IsStatic => (this.Attrs & 0x10) == 0x10;
 
@@ -56,6 +57,6 @@
             }
         }
 
-        public object GetValue(uint address) => this.Process.ReadManaged(this, address);
+        public object GetValue(long address) => this.Process.ReadManaged(this, address);
     }
 }
