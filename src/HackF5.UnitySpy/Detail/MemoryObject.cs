@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Linq;
 
 namespace HackF5.UnitySpy.Detail
 {
@@ -36,5 +37,7 @@ namespace HackF5.UnitySpy.Detail
         protected uint ReadUInt32(int offset) => this.Process.ReadUInt32(this.Address + offset);
 
         protected byte ReadByte(int offset) => this.Process.ReadByte(this.Address + offset);
+
+        protected byte[] ReadBytes(int offset, int size) => this.Process.ReadBufferValue<byte[]>(this.Address + offset, size, x => x.ToArray());
     }
 }

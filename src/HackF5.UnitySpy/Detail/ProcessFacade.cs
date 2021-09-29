@@ -123,13 +123,17 @@
                 case TypeCode.GENERICINST:
                     return this.ReadManagedGenericObject(type, address);
 
-                //// this is the type code for generic structs class-internals.h_MonoGenericParam. Good luck with
+                //// this is the type code for generic structs class-internals.h -> _MonoGenericParam. Good luck with
                 //// that!
                 //// Using the Generic Object works in at least some cases, like
                 //// when retrieving the NetCache service.
                 //// It's probably better to have something incomplete here
                 //// that will raise an exception later on than throwing the exception right away?
                 case TypeCode.OBJECT:
+                    if (type.Data == IntPtr.Zero)
+                    {
+                        return $"empty object@{type.GetAddress()}";
+                    }
                     return this.ReadManagedGenericObject(type, address);
 
                 case TypeCode.VAR:
@@ -201,7 +205,7 @@
             int nSize,
             out IntPtr lpNumberOfBytesRead);
 
-        private TValue ReadBufferValue<TValue>(IntPtr address, int size, Func<byte[], TValue> read)
+        public TValue ReadBufferValue<TValue>(IntPtr address, int size, Func<byte[], TValue> read)
         {
             var buffer = ByteArrayPool.Instance.Rent(size);
 
@@ -229,6 +233,7 @@
             var arrayDefinition = type.Image.GetTypeDefinition(arrayDefinitionPtr);
             var elementDefinition = type.Image.GetTypeDefinition(this.ReadPtr(arrayDefinitionPtr));
 
+            // TODO: this is not correct for Arrays of structs
             var elementSize = MonoLibraryOffsets.UsesArrayDefinitionSize ? arrayDefinition.Size : SizeOfPtr;
 
             var count = this.ReadInt32(ptr + SizeOfPtr * 3);
